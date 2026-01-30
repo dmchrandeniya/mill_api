@@ -4,6 +4,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { databaseConfig } from './config/database.config';
 import { HealthModule } from './health/health.module';
 import { TenantModule } from './tenant/tenant.module';
+import { AuthModule } from './auth/auth.module';
+import { UsersModule } from './users/users.module';
 @Module({
   imports: [
     // Loads .env globally
@@ -17,6 +19,8 @@ import { TenantModule } from './tenant/tenant.module';
     }),
     HealthModule,
     TenantModule,
+    AuthModule,
+    UsersModule,
     
   ],
 })
