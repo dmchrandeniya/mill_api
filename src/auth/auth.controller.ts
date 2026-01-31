@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import type { Response, Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -6,6 +14,7 @@ import { SessionAuthGuard } from './guards/session-auth.guard';
 import { CurrentAuth } from './decorators/current-user.decorator';
 import { AUTH_COOKIES } from './auth.types';
 import { JwtService } from '@nestjs/jwt';
+import { CsrfGuard } from './guards/csrf.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -15,11 +24,22 @@ export class AuthController {
   ) {}
 
   @Post('login')
-  async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const ip = (req.headers['x-forwarded-for'] as string) ?? req.socket.remoteAddress ?? '';
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const ip =
+      (req.headers['x-forwarded-for'] as string) ??
+      req.socket.remoteAddress ??
+      '';
     const ua = req.headers['user-agent'] ?? '';
 
-    const { user, accessToken, refreshToken } = await this.auth.login(dto, ip, ua);
+    const { user, accessToken, refreshToken } = await this.auth.login(
+      dto,
+      ip,
+      ua,
+    );
 
     this.setAuthCookies(res, accessToken, refreshToken);
     return { message: 'Logged in', user };
@@ -27,18 +47,26 @@ export class AuthController {
 
   @Post('logout')
   @UseGuards(SessionAuthGuard)
-  async logout(@CurrentAuth() auth: any, @Res({ passthrough: true }) res: Response) {
+  async logout(
+    @CurrentAuth() auth: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     await this.auth.logout(auth.sid);
     this.clearAuthCookies(res);
     return { message: 'Logged out' };
   }
 
   @Post('refresh')
-  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const token = req.cookies?.[AUTH_COOKIES.REFRESH];
     if (!token) return { message: 'Missing refresh cookie' };
 
-    const payload = this.jwt.verify<any>(token, { secret: process.env.JWT_REFRESH_SECRET });
+    const payload = this.jwt.verify<any>(token, {
+      secret: process.env.JWT_REFRESH_SECRET,
+    });
 
     // payload: { sid, rid, uid, cid, iat, exp }
     const out = await this.auth.refresh(payload);
@@ -48,13 +76,29 @@ export class AuthController {
   }
 
   @Get('me')
-  @UseGuards(SessionAuthGuard)
+  @UseGuards(SessionAuthGuard,CsrfGuard)
   me(@CurrentAuth() auth: any) {
     return { auth };
   }
 
+  @Post('logout-all')
+  @UseGuards(SessionAuthGuard,CsrfGuard)
+  logoutAll(@CurrentAuth() auth: any) {
+    return this.auth.logoutAll(auth.uid);
+  }
+
+  @Get('sessions')
+  @UseGuards(SessionAuthGuard,CsrfGuard)
+  sessions(@CurrentAuth() auth: any) {
+    return this.auth.getActiveSessions(auth.uid);
+  }
+
   // ---- cookie helpers ----
-  private setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
+  private setAuthCookies(
+    res: Response,
+    accessToken: string,
+    refreshToken: string,
+  ) {
     const isProd = process.env.NODE_ENV === 'production';
 
     res.cookie(AUTH_COOKIES.ACCESS, accessToken, {

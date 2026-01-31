@@ -1,6 +1,10 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, MoreThan } from 'typeorm';
+import { Repository, IsNull, MoreThan, In } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
 
@@ -81,12 +85,23 @@ export class AuthService {
   }
 
   async logout(sessionId: string) {
-    await this.sessionRepo.update({ session_id: sessionId }, { revoked_at: new Date() });
-    await this.refreshRepo.update({ session_id: sessionId }, { revoked_at: new Date() });
+    await this.sessionRepo.update(
+      { session_id: sessionId },
+      { revoked_at: new Date() },
+    );
+    await this.refreshRepo.update(
+      { session_id: sessionId },
+      { revoked_at: new Date() },
+    );
     return { message: 'Logged out' };
   }
 
-  async refresh(refreshPayload: { sid: string; rid: string; uid: string; cid: string }) {
+  async refresh(refreshPayload: {
+    sid: string;
+    rid: string;
+    uid: string;
+    cid: string;
+  }) {
     const session = await this.sessionRepo.findOne({
       where: {
         session_id: refreshPayload.sid,
@@ -98,6 +113,11 @@ export class AuthService {
     });
 
     if (!session) throw new ForbiddenException('Session invalid');
+
+    await this.sessionRepo.update(
+      { session_id: session.session_id },
+      { expires_at: new Date(Date.now() + this.refreshTtlSeconds * 1000) },
+    );
 
     const refreshRow = await this.refreshRepo.findOne({
       where: {
@@ -111,7 +131,10 @@ export class AuthService {
     if (!refreshRow) throw new ForbiddenException('Refresh invalid');
 
     // Optional: rotate refresh token each time (recommended)
-    await this.refreshRepo.update({ refresh_id: refreshRow.refresh_id }, { revoked_at: new Date() });
+    await this.refreshRepo.update(
+      { refresh_id: refreshRow.refresh_id },
+      { revoked_at: new Date() },
+    );
 
     const newRefresh = await this.refreshRepo.save(
       this.refreshRepo.create({
@@ -137,6 +160,37 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  async logoutAll(user_id: string) {
+    await this.sessionRepo.update(
+      { user_id, revoked_at: IsNull() },
+      { revoked_at: new Date() },
+    );
+
+    await this.refreshRepo.update(
+      {
+        session_id: In(
+          (await this.sessionRepo.find({ where: { user_id } })).map(
+            (s) => s.session_id,
+          ),
+        ),
+      },
+      { revoked_at: new Date() },
+    );
+
+    return { message: 'All sessions revoked' };
+  }
+
+  async getActiveSessions(user_id: string) {
+    return this.sessionRepo.find({
+      where: {
+        user_id,
+        revoked_at: IsNull(),
+        expires_at: MoreThan(new Date()),
+      },
+      order: { created_at: 'DESC' },
+    });
+  }
+
   // -------- token helpers --------
   private signAccessToken(data: { sid: string; uid: string; cid: string }) {
     const payload: AuthCookiePayload = {
@@ -150,10 +204,18 @@ export class AuthService {
     return this.jwt.sign(payload, { secret: process.env.JWT_ACCESS_SECRET });
   }
 
-  private signRefreshToken(data: { sid: string; uid: string; cid: string; rid: string }) {
+  private signRefreshToken(data: {
+    sid: string;
+    uid: string;
+    cid: string;
+    rid: string;
+  }) {
     return this.jwt.sign(
       { ...data },
-      { secret: process.env.JWT_REFRESH_SECRET, expiresIn: this.refreshTtlSeconds },
+      {
+        secret: process.env.JWT_REFRESH_SECRET,
+        expiresIn: this.refreshTtlSeconds,
+      },
     );
   }
 
