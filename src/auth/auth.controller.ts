@@ -15,6 +15,7 @@ import { CurrentAuth } from './decorators/current-user.decorator';
 import { AUTH_COOKIES } from './auth.types';
 import { JwtService } from '@nestjs/jwt';
 import { CsrfGuard } from './guards/csrf.guard';
+import { randomBytes } from 'crypto';
 
 @Controller('auth')
 export class AuthController {
@@ -22,6 +23,8 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly jwt: JwtService,
   ) {}
+
+  // ---------- AUTH ----------
 
   @Post('login')
   async login(
@@ -42,18 +45,8 @@ export class AuthController {
     );
 
     this.setAuthCookies(res, accessToken, refreshToken);
-    return { message: 'Logged in', user };
-  }
 
-  @Post('logout')
-  @UseGuards(SessionAuthGuard)
-  async logout(
-    @CurrentAuth() auth: any,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    await this.auth.logout(auth.sid);
-    this.clearAuthCookies(res);
-    return { message: 'Logged out' };
+    return { message: 'Logged in', user };
   }
 
   @Post('refresh')
@@ -64,11 +57,10 @@ export class AuthController {
     const token = req.cookies?.[AUTH_COOKIES.REFRESH];
     if (!token) return { message: 'Missing refresh cookie' };
 
-    const payload = this.jwt.verify<any>(token, {
+    const payload = this.jwt.verify(token, {
       secret: process.env.JWT_REFRESH_SECRET,
     });
 
-    // payload: { sid, rid, uid, cid, iat, exp }
     const out = await this.auth.refresh(payload);
     this.setAuthCookies(res, out.accessToken, out.refreshToken);
 
@@ -76,24 +68,41 @@ export class AuthController {
   }
 
   @Get('me')
-  @UseGuards(SessionAuthGuard,CsrfGuard)
+  @UseGuards(SessionAuthGuard)
   me(@CurrentAuth() auth: any) {
     return { auth };
   }
 
-  @Post('logout-all')
-  @UseGuards(SessionAuthGuard,CsrfGuard)
-  logoutAll(@CurrentAuth() auth: any) {
-    return this.auth.logoutAll(auth.uid);
+  // ---------- LOGOUT ----------
+
+  @Post('logout')
+  @UseGuards(SessionAuthGuard, CsrfGuard)
+  async logout(
+    @CurrentAuth() auth: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.auth.logout(auth.sid);
+    this.clearAuthCookies(res);
+    return { message: 'Logged out' };
   }
 
+  @Post('logout-all')
+  @UseGuards(SessionAuthGuard, CsrfGuard)
+  async logoutAll(@CurrentAuth() auth: any) {
+    await this.auth.logoutAll(auth.uid);
+    return { message: 'Logged out from all sessions' };
+  }
+
+  // ---------- SESSIONS ----------
+
   @Get('sessions')
-  @UseGuards(SessionAuthGuard,CsrfGuard)
+  @UseGuards(SessionAuthGuard) // ✅ NO CSRF
   sessions(@CurrentAuth() auth: any) {
     return this.auth.getActiveSessions(auth.uid);
   }
 
-  // ---- cookie helpers ----
+  // ---------- COOKIES ----------
+
   private setAuthCookies(
     res: Response,
     accessToken: string,
@@ -113,13 +122,21 @@ export class AuthController {
       httpOnly: true,
       secure: isProd,
       sameSite: 'lax',
-      path: '/auth/refresh', // nice hardening
+      path: '/api/auth', // ✅ FIXED
       maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+
+    res.cookie('mill_csrf', randomBytes(32).toString('hex'), {
+      httpOnly: false,
+      secure: isProd,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 24 * 60 * 60 * 1000,
     });
   }
 
   private clearAuthCookies(res: Response) {
     res.clearCookie(AUTH_COOKIES.ACCESS, { path: '/' });
-    res.clearCookie(AUTH_COOKIES.REFRESH, { path: '/auth/refresh' });
+    res.clearCookie(AUTH_COOKIES.REFRESH, { path: '/api/auth' });
   }
 }
