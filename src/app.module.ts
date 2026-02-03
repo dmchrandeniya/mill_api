@@ -6,6 +6,7 @@ import { HealthModule } from './health/health.module';
 import { TenantModule } from './tenant/tenant.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { RbacModule } from './rbac/rbac.module';
 @Module({
   imports: [
     // Loads .env globally
@@ -21,6 +22,7 @@ import { UsersModule } from './users/users.module';
     TenantModule,
     AuthModule,
     UsersModule,
+    RbacModule,
     
   ],
 })
