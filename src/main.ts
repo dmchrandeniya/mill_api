@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import cookieParser from 'cookie-parser';
+import { PermissionSeedService } from './rbac/seeds/permission-seed.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -11,23 +12,27 @@ async function bootstrap() {
 
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,            // strip unknown fields
-      forbidNonWhitelisted: true, // throw if extra fields sent
-      transform: true,            // auto DTO transform
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
     }),
   );
 
   app.useGlobalInterceptors(new ResponseInterceptor());
+
   app.enableCors({
     origin: [
-      'http://localhost:3000', // Next.js / frontend
+      'http://localhost:3000',
       'http://127.0.0.1:3000',
     ],
-    credentials: true, // 🔴 MUST be true for cookies
+    credentials: true,
   });
 
-  // Optional but recommended
   app.setGlobalPrefix('api');
+
+  // 🔐 GLOBAL PERMISSION SEEDING (RUNS ONCE PER APP START)
+  const permissionSeedService = app.get(PermissionSeedService);
+  await permissionSeedService.seedGlobalPermissions();
 
   await app.listen(3000);
 }
